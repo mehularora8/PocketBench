@@ -1,10 +1,26 @@
+import os
+
 class BenchmarkConfig:
-    def __init__(self):
-        self.games_per_session = 10
-        self.llm_model = "gpt-4-vision-preview"  # or claude-3-opus, etc.
-        self.api_key = "your-api-key"
-        self.screenshot_region = (0, 0, 1920, 1080)  # Full screen or specific region
-        self.move_delay = 5.0  # seconds between moves
-        self.game_launch_path = "/Applications/Pocket Tanks.app/Contents/MacOS/Pocket Tanks"
+    def __init__(
+        self, 
+        model_provider: str = "openai", 
+        model: str = "gpt-4o-mini", 
+        games_per_session: int = 10, 
+        screenshot_region: tuple = (0, 0, 1920, 1080), 
+        game_launch_path: str = "/Applications/Pocket Tanks.app/Contents/MacOS/Pocket Tanks"
+    ):
+        self.games_per_session = games_per_session
+        self.model = model
+        self.model_provider = model_provider
+        self.screenshot_region = screenshot_region
+        self.game_launch_path = game_launch_path
+        if model_provider == "openai":
+            self.api_key = os.getenv("OPENAI_API_KEY")
+        elif model_provider == "anthropic":
+            self.api_key = os.getenv("ANTHROPIC_API_KEY")
+        elif model_provider == "gemini":
+            self.api_key = os.getenv("GEMINI_API_KEY")
+        else:
+            raise ValueError(f"Invalid model provider: {model_provider}")
 
 config = BenchmarkConfig()

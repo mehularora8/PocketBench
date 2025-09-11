@@ -1,8 +1,11 @@
+import logging
 import pyautogui
 import time
 import subprocess
 from config import config
 from typing import Tuple, Literal, Optional
+
+logger = logging.getLogger(__name__)
 
 class MoveData:
     def __init__(self, angle_delta: int, power_delta: int, move_actions: Optional[Tuple[Literal['R', 'L'], int]]):
@@ -24,8 +27,8 @@ class PocketTanksGameController:
 
     CONTROLS_COORDINATES = {
         "fire": (866, 650),
-        "angle_increase": (1017, 662),
-        "angle_decrease": (955, 662),
+        "angle_decrease": (1017, 662),
+        "angle_increase": (955, 662),
         "power_increase": (1017, 730),
         "power_decrease": (955, 730),
         "move_right": (781, 650),
@@ -34,8 +37,7 @@ class PocketTanksGameController:
         "next_weapon": (860, 732)
     }
 
-    def __init__(self, config):
-        self.config = config
+    def __init__(self):
         self.game_process = None
         self.setup_pyautogui()
     
@@ -45,7 +47,7 @@ class PocketTanksGameController:
 
     def force_click(self, x, y, description=""):
         """Force focus then use pyautogui"""
-        print(f"Forcing focus click for {description} at ({x}, {y})")
+        logger.info(f"Forcing focus click for {description} at ({x}, {y})")
         
         # Force app to front
         subprocess.run(["osascript", "-e", 'tell application "Pocket Tanks" to activate'])
@@ -53,30 +55,40 @@ class PocketTanksGameController:
         
         # Move and click with pyautogui
         pyautogui.moveTo(x, y)
-        time.sleep(0.1)
         pyautogui.mouseDown(button='left')
-        time.sleep(0.05)
+        time.sleep(0.01)
         pyautogui.mouseUp(button='left')
+
+    def force_click_multiple(self, x, y, times, description=""):
+        """Force focus then use pyautogui to click multiple times"""
+        logger.info(f"Forcing focus click multiple times for {description} at ({x}, {y}) {times} times")
+        subprocess.run(["osascript", "-e", 'tell application "Pocket Tanks" to activate'])
+        time.sleep(2)
+        for _ in range(times):
+            pyautogui.moveTo(x, y)
+            pyautogui.mouseDown(button='left')
+            time.sleep(0.01)
+            pyautogui.mouseUp(button='left')
     
     def launch_and_setup_game(self):
         """Launch game and set it up for benchmarking"""
-        print("Launching Pocket Tanks...")
+        logger.info("Launching Pocket Tanks...")
         
         # Launch game
         subprocess.run(["open", "-a", "Pocket Tanks"])
-        print("Game launched, waiting for 6 seconds to load...")
-        time.sleep(6)
+        logger.info("Game launched, waiting for 6 seconds to load...")
+        time.sleep(3)
         # Navigate to new game setup
         self.setup_new_game()
         
     def setup_new_game(self):
         """Set up game: LLM Agent as Player 1, Random weapons"""
-        print("Setting up new game...")
+        logger.info("Setting up new game...")
 
         for key, value in self.SCAFFOLDING_COORDINATES.items():
-            print(f"Clicking {key} at {value[0], value[1]}")
+            logger.info(f"Clicking {key} at {value[0], value[1]}")
             self.force_click(value[0], value[1])
-            time.sleep(5)
+            time.sleep(4)
     
     def take_game_screenshot(self):
         """Capture current game state"""
@@ -85,48 +97,47 @@ class PocketTanksGameController:
     
     def execute_turn(self, move_data: MoveData):
         """Execute the move returned by LLM"""
-        print(f"Executing turn: {move_data}")
+        logger.info(f"Executing turn: {move_data}")
 
         self.set_angle(move_data.angle_delta)
         self.set_power(move_data.power_delta)
         self.perform_move_actions(move_data.move_actions)
         self.fire()
-        time.sleep(1)
+        time.sleep(2)
+        print("This is 2 seconds after the turn...")
+        time.sleep(10)
+        print("This is 10 seconds after the turn...")
     
     def set_angle(self, angle_delta: int):
         """Set cannon angle (0-90 degrees)"""
         # This depends on your game's UI - needs calibration
         if angle_delta > 0:
-            for _ in range(angle_delta):
-                self.force_click(self.CONTROLS_COORDINATES["angle_increase"])
+            self.force_click_multiple(self.CONTROLS_COORDINATES["angle_increase"][0], self.CONTROLS_COORDINATES["angle_increase"][1], angle_delta)
         elif angle_delta < 0:
-            for _ in range(-angle_delta):
-                self.force_click(self.CONTROLS_COORDINATES["angle_decrease"])
+            self.force_click_multiple(self.CONTROLS_COORDINATES["angle_decrease"][0], self.CONTROLS_COORDINATES["angle_decrease"][1], -angle_delta)
     
     def set_power(self, power_delta: int):
         """Set shot power (0-100)"""
         if power_delta > 0:
-            for _ in range(power_delta):
-                self.force_click(self.CONTROLS_COORDINATES["power_increase"])
+            self.force_click_multiple(self.CONTROLS_COORDINATES["power_increase"][0], self.CONTROLS_COORDINATES["power_increase"][1], power_delta)
         elif power_delta < 0:
-            for _ in range(-power_delta):
-                self.force_click(self.CONTROLS_COORDINATES["power_decrease"])
+            self.force_click_multiple(self.CONTROLS_COORDINATES["power_decrease"][0], self.CONTROLS_COORDINATES["power_decrease"][1], -power_delta)
 
     def perform_move_actions(self, move_actions: Optional[Tuple[Literal['R', 'L'], int]]):
         """Perform move actions, if any."""
         if move_actions:
             if move_actions[0] == "R":
                 for _ in range(move_actions[1]):
-                    self.force_click(self.CONTROLS_COORDINATES["move_right"])
+                    self.force_click(self.CONTROLS_COORDINATES["move_right"][0], self.CONTROLS_COORDINATES["move_right"][1])
                     time.sleep(1)
             elif move_actions[0] == "L":
                 for _ in range(move_actions[1]):
-                    self.force_click(self.CONTROLS_COORDINATES["move_left"])
+                    self.force_click(self.CONTROLS_COORDINATES["move_left"][0], self.CONTROLS_COORDINATES["move_left"][1])
                     time.sleep(1)
     
     def fire(self):
         """Fire the shot"""
-        self.force_click(self.CONTROLS_COORDINATES["fire"])
+        self.force_click(self.CONTROLS_COORDINATES["fire"][0], self.CONTROLS_COORDINATES["fire"][1])
     
     def is_llm_turn(self):
         """Check if it's the LLM agent's turn (Player 1)"""
@@ -138,9 +149,3 @@ class PocketTanksGameController:
         """Check if current game has ended"""
         # Look for game over screen, victory message, etc.
         return False  # 
-    
-
-if __name__ == "__main__":
-    controller = PocketTanksGameController(config)
-    controller.launch_and_setup_game()
-    controller.execute_turn(MoveData(angle_delta=10, power_delta=10, move_actions=("R", 10)))

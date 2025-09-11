@@ -1,39 +1,35 @@
-# agent.py
-import base64, io, json, sys
-from typing import Optional, Dict, Any, Union
+import base64
+import json
+import logging
+from typing import Optional, Union, Any, Dict
 from PIL import Image
+import io
 import litellm
+from litellm import completion
 from config import BenchmarkConfig
 from models import GameMove
-import logging
 from prompts.move_analysis import move_analysis_prompt
 logger = logging.getLogger("PocketBench.agent")
 
-
-# --- Main Agent Class ---
-class PocketTanksAgent:
-    """Agent class for analyzing Pocket Tanks screenshots using configurable LLMs."""
+class LLMAgent:
+    """
+    LLM Agent using LiteLLM with structured JSON output and image support.
+    Supports multiple providers (OpenAI, Anthropic, etc.) through LiteLLM.
+    """
     
     def __init__(self, config: BenchmarkConfig):
         self.config = config
-        self.move_schema = GameMove.model_json_schema()
-
-        self._setup_litellm()
-    
-    def _setup_litellm(self):
-        """Configure LiteLLM with the provided config."""
-        model_provider = self.config.model_provider.lower()
-        if "openai" == model_provider:
-            litellm.openai_key = self.config.api_key
-        elif "anthropic" == model_provider:
-            litellm.anthropic_key = self.config.api_key
-        elif "gemini" == model_provider:
-            litellm.google_key = self.config.api_key
-        else:
-            raise ValueError(f"Invalid model provider: {model_provider}")
+        self.model = config.model
+        self.api_key = config.api_key
+        self.model_provider = config.model_provider
         
-        logger.info(f"LLM Agent initialized with model: {self.config.model}")
-    
+        # Set up LiteLLM with API key
+        if self.model_provider == "openai":
+            litellm.openai_key = self.api_key
+        elif self.model_provider == "anthropic":
+            litellm.anthropic_key = self.api_key
+        
+
     def encode_image(self, image: Union[str, Image.Image, bytes]) -> str:
         """
         Encode image to base64 string for API consumption.
@@ -62,7 +58,7 @@ class PocketTanksAgent:
         except Exception as e:
             logger.error(f"Error encoding image: {e}")
             raise
-    
+
     def create_image_message(self, image: Union[str, Image.Image, bytes], 
                            text: str) -> Dict[str, Any]:
         """
@@ -92,7 +88,7 @@ class PocketTanksAgent:
                 }
             ]
         }
-    
+
     def get_structured_response(self, messages: list, 
                               response_format: Optional[Dict] = None) -> Dict[str, Any]:
         """
@@ -117,7 +113,7 @@ class PocketTanksAgent:
             if response_format and "gpt" in self.model.lower():
                 kwargs["response_format"] = {"type": "json_object"}
             
-            response = litellm.completion(**kwargs)
+            response = completion(**kwargs)
             content = response.choices[0].message.content
             
             # Parse JSON response
@@ -130,7 +126,7 @@ class PocketTanksAgent:
                     return self._extract_json_from_text(content)
             
             return content
-
+            
         except Exception as e:
             logger.error(f"Error getting structured response: {e}")
             # Return fallback response
@@ -141,7 +137,27 @@ class PocketTanksAgent:
                 "reasoning": f"Error occurred: {str(e)}",
                 "confidence": 0.1
             }
-    
+
+    def _extract_json_from_text(self, text: str) -> Dict[str, Any]:
+        """Extract JSON from text response as fallback."""
+        try:
+            # Look for JSON-like patterns
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            if start != -1 and end > start:
+                json_str = text[start:end]
+                return json.loads(json_str)
+        except:
+            pass
+        
+        # Return default if extraction fails
+        return {
+            "angle_delta": 0,
+            "power_delta": 0, 
+            "move_actions": None,
+            "reasoning": "Failed to parse response",
+            "confidence": 0.1
+        }
 
     def get_move(self, screenshot: Union[str, Image.Image, bytes]) -> GameMove:
         """
@@ -189,28 +205,3 @@ class PocketTanksAgent:
                 reasoning=f"Error occurred: {str(e)}",
                 confidence=0.1
             )
-
-    
-    @staticmethod
-    def clean_json(text: str) -> str:
-        if not text: return ""
-
-        try:
-            # Look for JSON-like patterns
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            if start != -1 and end > start:
-                json_str = text[start:end]
-                return json.loads(json_str)
-        except:
-            pass
-        
-        return {
-            "angle_delta": 0,
-            "power_delta": 0, 
-            "move_actions": None,
-            "reasoning": "Failed to parse response",
-            "confidence": 0.1
-        }
-        
-    
