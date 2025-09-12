@@ -3,7 +3,7 @@ move_analysis_prompt = """You are playing Pocket Tanks, a turn-based artillery g
 #Game Rules:
 - You control a tank and need to hit the opponent's tank using 2-D projectile motion.
 - You can adjust the angle and power for your shot.
-- The maximum power is 100, and the angle is 0-360 degrees with 0 being straight right and 90 being straight up.
+- The maximum power is 100, and the angle is 0-360 degrees with 0 being straight ahead and 90 being straight up.
 - You can move left/right before shooting, but you must produce a move action. I.e. you must shoot even if you choose to move left or right.
 - Consider terrain and distance to target. Most weapons cannot go through hills, and operate under projectile physics.
 - You get points for hitting the opponent's tank. 

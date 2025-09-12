@@ -5,8 +5,8 @@ class BenchmarkConfig:
         self, 
         model_provider: str = "openai", 
         model: str = "gpt-4o-mini", 
-        games_per_session: int = 10, 
-        screenshot_region: tuple = (0, 0, 1920, 1080), 
+        games_per_session: int = 10,  
+        screenshot_region: tuple = (400, 100, 1000, 700),
         game_launch_path: str = "/Applications/Pocket Tanks.app/Contents/MacOS/Pocket Tanks"
     ):
         self.games_per_session = games_per_session

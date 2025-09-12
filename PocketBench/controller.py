@@ -2,17 +2,16 @@ import logging
 import pyautogui
 import time
 import subprocess
+import os
+import cv2
+import numpy as np
+from datetime import datetime
 from config import config
 from typing import Tuple, Literal, Optional
+from turn_detection import TurnDetector, MoveAnalyzer, GameContextManager
+from models import MoveData
 
 logger = logging.getLogger(__name__)
-
-class MoveData:
-    def __init__(self, angle_delta: int, power_delta: int, move_actions: Optional[Tuple[Literal['R', 'L'], int]]):
-        self.angle_delta: int = angle_delta
-        self.power_delta: int = power_delta
-        # R = move right, L = move left
-        self.move_actions: Optional[Tuple[Literal['R', 'L'], int]] = move_actions 
 
 class PocketTanksGameController:
 
@@ -40,6 +39,20 @@ class PocketTanksGameController:
     def __init__(self):
         self.game_process = None
         self.setup_pyautogui()
+        
+        # Add state management  
+        self.turn_detector = TurnDetector(motion_threshold=15000000, stable_frames=20, fps=5)
+        self.move_analyzer = MoveAnalyzer()
+        self.context_manager = GameContextManager()
+        
+        # Track absolute angle and power values
+        self.current_angle = 60  # Starting angle
+        self.current_power = 20  # Starting power
+        
+        # Move counter and debugging
+        self.move_count = 0
+        self.debug_folder = "debugging_photos"
+        os.makedirs(self.debug_folder, exist_ok=True)
     
     def setup_pyautogui(self):
         pyautogui.FAILSAFE = True
@@ -47,7 +60,6 @@ class PocketTanksGameController:
 
     def force_click(self, x, y, description=""):
         """Force focus then use pyautogui"""
-        logger.info(f"Forcing focus click for {description} at ({x}, {y})")
         
         # Force app to front
         subprocess.run(["osascript", "-e", 'tell application "Pocket Tanks" to activate'])
@@ -56,18 +68,17 @@ class PocketTanksGameController:
         # Move and click with pyautogui
         pyautogui.moveTo(x, y)
         pyautogui.mouseDown(button='left')
-        time.sleep(0.01)
+        time.sleep(0.001)
         pyautogui.mouseUp(button='left')
 
     def force_click_multiple(self, x, y, times, description=""):
         """Force focus then use pyautogui to click multiple times"""
-        logger.info(f"Forcing focus click multiple times for {description} at ({x}, {y}) {times} times")
         subprocess.run(["osascript", "-e", 'tell application "Pocket Tanks" to activate'])
         time.sleep(2)
         for _ in range(times):
             pyautogui.moveTo(x, y)
             pyautogui.mouseDown(button='left')
-            time.sleep(0.01)
+            time.sleep(0.001)
             pyautogui.mouseUp(button='left')
     
     def launch_and_setup_game(self):
@@ -92,21 +103,112 @@ class PocketTanksGameController:
     
     def take_game_screenshot(self):
         """Capture current game state"""
-        screenshot = pyautogui.screenshot()
+        screenshot = pyautogui.screenshot(region=config.screenshot_region)
         return screenshot
-    
-    def execute_turn(self, move_data: MoveData):
-        """Execute the move returned by LLM"""
-        logger.info(f"Executing turn: {move_data}")
 
+        
+    def execute_turn_with_analysis(self, move_data: MoveData):
+        """Enhanced execute_turn that tracks outcomes"""
+        self.move_count += 1
+        
+        # Calculate absolute values before executing
+        new_angle = self.current_angle + move_data.angle_delta
+        new_power = self.current_power + move_data.power_delta
+        
+        # Add absolute values to move_data for context
+        move_data.absolute_angle = new_angle
+        move_data.absolute_power = new_power
+        
+        logger.info(f"Executing turn {self.move_count}: angle={new_angle} (Δ{move_data.angle_delta:+d}), power={new_power} (Δ{move_data.power_delta:+d})")
+        
+        # Take pre-shot screenshot
+        pre_shot = self.take_game_screenshot()
+        self.save_debug_photo(pre_shot, f"move_{self.move_count}_pre_shot")
+        
+        # Execute the move (existing logic)
         self.set_angle(move_data.angle_delta)
         self.set_power(move_data.power_delta)
         self.perform_move_actions(move_data.move_actions)
         self.fire()
-        time.sleep(2)
-        print("This is 2 seconds after the turn...")
-        time.sleep(10)
-        print("This is 10 seconds after the turn...")
+        
+        # Update current state
+        self.current_angle = new_angle
+        self.current_power = new_power
+        
+        self.wait_for_turn_end()
+        
+        # Take post-shot screenshot
+        post_shot = self.take_game_screenshot()
+        self.save_debug_photo(post_shot, f"move_{self.move_count}_post_shot")
+        
+        # Analyze outcome
+        outcome = self.move_analyzer.analyze_move_outcome(pre_shot, post_shot)
+        
+        # Store for next move
+        self.context_manager.add_move_result(move_data, outcome)
+        
+        logger.info(f"Move {self.move_count} result: {outcome.distance_result}")
+        if outcome.hit_detected:
+            logger.info("HIT DETECTED!")
+        
+    def wait_for_turn_end(self):
+        """Wait for turn cycle to complete using timeout"""
+        logger.info("Waiting 12 seconds for turn cycle to complete...")
+        time.sleep(18)
+        logger.info("Turn cycle complete - ready for next move!")
+        
+    def wait_for_turn_end_deprecated(self):
+        """DEPRECATED - old turn detection logic kept for reference"""
+        logger.info("Waiting for complete turn cycle: our shot → opponent turn → our turn again")
+        
+        # Step 1: Wait for our underline to disappear (our turn ends)
+        logger.info("Waiting for our turn to end...")
+        while True:
+            screenshot = pyautogui.screenshot(region=config.screenshot_region) 
+            screenshot_cv = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+
+            if not self.turn_detector.is_our_turn(screenshot_cv):
+                break
+            
+            time.sleep(0.3)
+            
+        logger.info("Our turn ended, opponent's turn active...")
+        
+        # Step 2: Wait for our underline to reappear (our turn starts again)
+        logger.info("Waiting for our turn to return...")
+        while True:
+            screenshot = pyautogui.screenshot(region=config.screenshot_region) 
+            screenshot_cv = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+
+            if self.turn_detector.is_our_turn(screenshot_cv):
+                break
+            
+            time.sleep(0.3)
+            
+        logger.info("Our turn returned - ready for next move!")
+        
+    def get_context_for_agent(self) -> str:
+        """Get context string to pass to agent"""
+        context = self.context_manager.get_context_string()
+        logger.info(f"Context for agent:\n{context}")
+        return context
+        
+    def save_debug_photo(self, image, name):
+        """Save screenshot with timestamp for debugging"""
+        timestamp = datetime.now().strftime("%H%M%S")
+        filename = f"{name}_{timestamp}.png"
+        filepath = os.path.join(self.debug_folder, filename)
+        image.save(filepath)
+        logger.info(f"Saved debug photo: {filepath}")
+        
+    def clear_game_context(self):
+        """Clear context for new game"""
+        self.context_manager.clear_history()
+        self.move_count = 0
+        # Reset to starting values
+        self.current_angle = 60
+        self.current_power = 20
+        logger.info("Game context cleared")
     
     def set_angle(self, angle_delta: int):
         """Set cannon angle (0-90 degrees)"""

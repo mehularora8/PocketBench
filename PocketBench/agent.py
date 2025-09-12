@@ -16,6 +16,7 @@ class PocketTanksAgent:
     
     def __init__(self, config: BenchmarkConfig):
         self.config = config
+        self.model = config.model
         self.move_schema = GameMove.model_json_schema()
 
         self._setup_litellm()
@@ -143,7 +144,7 @@ class PocketTanksAgent:
             }
     
 
-    def get_move(self, screenshot: Union[str, Image.Image, bytes]) -> GameMove:
+    def get_move(self, screenshot: Union[str, Image.Image, bytes], context: str) -> GameMove:
         """
         Analyze game screenshot and return next move.
         
@@ -153,11 +154,18 @@ class PocketTanksAgent:
         Returns:
             GameMove object with structured decision
         """
-        prompt = move_analysis_prompt
+        base_prompt = move_analysis_prompt
+        
+        # Debug context
+        if context and context.strip():
+            enhanced_prompt = base_prompt + "\n\n" + context
+        else:
+            logger.info("Agent using base prompt (no context available)")
+            enhanced_prompt = base_prompt
 
         try:
             # Create message with image and text
-            message = self.create_image_message(screenshot, prompt)
+            message = self.create_image_message(screenshot, enhanced_prompt)
             messages = [message]
             
             # Get structured response

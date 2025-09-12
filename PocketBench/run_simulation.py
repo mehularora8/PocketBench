@@ -11,23 +11,29 @@ logging.basicConfig(
 
 from controller import PocketTanksGameController
 from config import config
-from PocketBench.agent_backup import LLMAgent, GameMove
+from agent import PocketTanksAgent
+from models import GameMove
 from controller import MoveData
 
 logger = logging.getLogger(__name__)
 
 def run():
     controller = PocketTanksGameController()
-    agent = LLMAgent(config)
+    agent = PocketTanksAgent(config)
 
     controller.launch_and_setup_game()
 
     for _ in range(10):
-        current_game_state = controller.take_game_screenshot()
-        move: GameMove = agent.get_move(current_game_state)
+        screenshot = controller.take_game_screenshot()
+        
+        context = controller.get_context_for_agent()
+        
+        move: GameMove = agent.get_move(screenshot, context)
+        
+        # 4. Execute move with outcome analysis
         try:
             move_data = MoveData(angle_delta=move.angle_delta, power_delta=move.power_delta, move_actions=move.move_actions)
-            controller.execute_turn(move_data)
+            controller.execute_turn_with_analysis(move_data)
         except Exception as e:
             logger.error(f"Error executing turn: {e}")
             continue
